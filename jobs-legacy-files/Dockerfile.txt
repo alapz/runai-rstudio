@@ -1,0 +1,40 @@
+# Base image
+FROM rocker/tidyverse:latest
+
+LABEL maintainer="Vadim Barkhatov <vbarkhatov@cheo.on.ca>"	
+LABEL org.opencontainers.image.source=https://github.com/cheori/container-images
+
+#install nginx and some helpful utilities
+RUN apt-get update && apt-get install -y nginx gettext-base curl gnupg2 net-tools iputils-ping
+RUN rm /etc/nginx/sites-enabled/default
+
+
+#installsql drivers and R odbc package
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
+    curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list > /etc/apt/sources.list.d/mssql-release.list
+
+RUN apt-get update &&\
+    ACCEPT_EULA=Y apt-get install -y msodbcsql17 
+
+RUN R -e "install.packages('odbc',dependencies=TRUE, repos='http://cran.rstudio.com/')"
+
+
+#inject startup script location into bash profile
+RUN echo 'source /share/.startup/.script.sh &> /var/tmp/startup-script.log' >> /home/rstudio/.bashrc
+
+
+#repurpose run AI's jupyter hacks for rstudio
+COPY jupyter_piggyback.sh /usr/local/bin/start-notebook.sh
+RUN chmod +x /usr/local/bin/start-notebook.sh
+
+
+#get the sub URLs working using an nginx proxy
+COPY nginx.conf /etc/nginx/sites-available/rstudio
+COPY nginx_global.conf /etc/nginx/conf.d/
+
+#place nginx launch script in services.d so it can be run by the s6 init like the rstudio service
+COPY nginx-run.conf /etc/services.d/nginx/run
+
+# Enable our Nginx site
+RUN ln -s /etc/nginx/sites-available/rstudio /etc/nginx/sites-enabled/rstudio
+
